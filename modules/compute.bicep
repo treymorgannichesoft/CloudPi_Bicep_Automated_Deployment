@@ -78,6 +78,7 @@ packages:
   - curl
   - gnupg
   - lsb-release
+  - parted
 
 write_files:
   - path: /etc/docker/daemon.json
@@ -100,18 +101,120 @@ runcmd:
   - systemctl start docker
   - usermod -aG docker ${adminUsername}
 
-  # Create data disk mount point
-  - mkdir -p /mnt/cloudpi-data
-
-  # Format and mount data disk (assuming it's /dev/sdc)
+  # Setup data disk using LUN-based detection
   - |
-    if [ -b /dev/sdc ]; then
-      parted /dev/sdc --script mklabel gpt mkpart primary ext4 0% 100%
-      mkfs.ext4 /dev/sdc1
-      echo '/dev/sdc1 /mnt/cloudpi-data ext4 defaults,nofail 0 2' >> /etc/fstab
-      mount -a
-      chown -R ${adminUsername}:${adminUsername} /mnt/cloudpi-data
+    set -e
+    LOG_FILE="/var/log/cloudpi-disk-setup.log"
+    MOUNT_POINT="/mnt/cloudpi-data"
+
+    # Logging function
+    log() {
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    }
+
+    log "Starting data disk setup"
+
+    # Create mount point
+    mkdir -p "$MOUNT_POINT"
+    log "Created mount point: $MOUNT_POINT"
+
+    # Wait for Azure data disk (LUN 0) to be available
+    log "Waiting for data disk (LUN 0) to be available..."
+    RETRY_COUNT=0
+    MAX_RETRIES=30
+
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+      if [ -e /dev/disk/azure/scsi1/lun0 ]; then
+        log "Data disk LUN 0 detected"
+        break
+      fi
+      log "Waiting for disk... (attempt $((RETRY_COUNT + 1))/$MAX_RETRIES)"
+      sleep 2
+      RETRY_COUNT=$((RETRY_COUNT + 1))
+    done
+
+    if [ ! -e /dev/disk/azure/scsi1/lun0 ]; then
+      log "ERROR: Data disk (LUN 0) not found after $MAX_RETRIES attempts"
+      log "Available disks: $(ls -l /dev/disk/azure/scsi1/ 2>&1 || echo 'none')"
+      exit 1
     fi
+
+    # Get the actual device path
+    DATA_DISK=$(readlink -f /dev/disk/azure/scsi1/lun0)
+    log "Data disk device: $DATA_DISK"
+
+    # Check if disk is already formatted and mounted
+    if mount | grep -q "$MOUNT_POINT"; then
+      log "Data disk already mounted at $MOUNT_POINT"
+      exit 0
+    fi
+
+    # Check if disk already has a filesystem
+    if blkid "$DATA_DISK" | grep -q "TYPE="; then
+      log "Disk already formatted, mounting existing filesystem"
+      EXISTING_FS=$(blkid -o value -s TYPE "$DATA_DISK")
+      log "Existing filesystem type: $EXISTING_FS"
+
+      # Add to fstab if not already present
+      if ! grep -q "$DATA_DISK" /etc/fstab; then
+        echo "$DATA_DISK $MOUNT_POINT $EXISTING_FS defaults,nofail 0 2" >> /etc/fstab
+        log "Added to fstab"
+      fi
+
+      mount -a
+      log "Mounted existing filesystem"
+    else
+      log "Disk not formatted, creating new filesystem"
+
+      # Create partition table and partition
+      log "Creating GPT partition table..."
+      parted "$DATA_DISK" --script mklabel gpt mkpart primary ext4 0% 100%
+
+      # Wait for partition to be recognized
+      sleep 2
+      partprobe "$DATA_DISK"
+      sleep 2
+
+      # Determine partition device name
+      if [ -b "${DATA_DISK}1" ]; then
+        PARTITION="${DATA_DISK}1"
+      elif [ -b "${DATA_DISK}p1" ]; then
+        PARTITION="${DATA_DISK}p1"
+      else
+        log "ERROR: Cannot determine partition device name"
+        log "Tried: ${DATA_DISK}1 and ${DATA_DISK}p1"
+        exit 1
+      fi
+
+      log "Partition created: $PARTITION"
+
+      # Format the partition
+      log "Formatting partition as ext4..."
+      mkfs.ext4 -F "$PARTITION"
+
+      # Add to fstab
+      echo "$PARTITION $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
+      log "Added to fstab"
+
+      # Mount the filesystem
+      mount -a
+      log "Filesystem mounted"
+    fi
+
+    # Verify mount
+    if mount | grep -q "$MOUNT_POINT"; then
+      log "SUCCESS: Data disk mounted at $MOUNT_POINT"
+      df -h "$MOUNT_POINT" | tee -a "$LOG_FILE"
+    else
+      log "ERROR: Failed to mount data disk"
+      exit 1
+    fi
+
+    # Set ownership
+    chown -R ${adminUsername}:${adminUsername} "$MOUNT_POINT"
+    log "Set ownership to ${adminUsername}"
+
+    log "Data disk setup completed successfully"
 
   # Create directories for CloudPi
   - mkdir -p /mnt/cloudpi-data/mysql
