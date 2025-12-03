@@ -69,7 +69,7 @@ var osDiskName = '${vmName}-osdisk'
 var dataDiskName = '${vmName}-datadisk'
 
 // Cloud-init configuration for Docker setup
-var cloudInit = base64('''
+var cloudInitTemplate = '''
 #cloud-config
 package_upgrade: true
 packages:
@@ -99,14 +99,14 @@ runcmd:
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
   - systemctl enable docker
   - systemctl start docker
-  - usermod -aG docker ${adminUsername}
+  - usermod -aG docker {{ADMIN_USERNAME}}
 
   # Setup data disk using LUN-based detection
   - |
     set -e
     LOG_FILE="/var/log/cloudpi-disk-setup.log"
     MOUNT_POINT="/mnt/cloudpi-data"
-    ADMIN_USER="${adminUsername}"
+    ADMIN_USER="{{ADMIN_USERNAME}}"
 
     # Logging function
     log() {
@@ -143,6 +143,22 @@ runcmd:
     # Get the actual device path
     DATA_DISK=$(readlink -f /dev/disk/azure/scsi1/lun0)
     log "Data disk device: $DATA_DISK"
+
+    # Safety check: Ensure we're not using the root filesystem disk
+    ROOT_DISK=$(df / | tail -1 | awk '{print $1}' | sed 's/[0-9]*$//')
+    log "Root filesystem disk: $ROOT_DISK"
+
+    if [ "$DATA_DISK" = "$ROOT_DISK" ]; then
+      log "ERROR: Data disk ($DATA_DISK) is the same as root filesystem disk ($ROOT_DISK)!"
+      log "This would destroy the OS. Aborting."
+      log "Available LUNs:"
+      ls -la /dev/disk/azure/scsi1/ | tee -a "$LOG_FILE"
+      log "All block devices:"
+      lsblk | tee -a "$LOG_FILE"
+      exit 1
+    fi
+
+    log "Safety check passed: Data disk ($DATA_DISK) is different from root disk ($ROOT_DISK)"
 
     # Check if disk is already formatted and mounted
     if mount | grep -q "$MOUNT_POINT"; then
@@ -222,11 +238,15 @@ runcmd:
   - mkdir -p /mnt/cloudpi-data/app
   - mkdir -p /mnt/cloudpi-data/logs
   - mkdir -p /mnt/cloudpi-data/backups
-  - chown -R ${adminUsername}:${adminUsername} /mnt/cloudpi-data
+  - chown -R {{ADMIN_USERNAME}}:{{ADMIN_USERNAME}} /mnt/cloudpi-data
 
   # Install Azure CLI (for potential management tasks)
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-''')
+'''
+
+// Replace placeholder with actual admin username and encode
+var cloudInitWithVars = replace(cloudInitTemplate, '{{ADMIN_USERNAME}}', adminUsername)
+var cloudInit = base64(cloudInitWithVars)
 
 // ============================================================================
 // Network Interface
