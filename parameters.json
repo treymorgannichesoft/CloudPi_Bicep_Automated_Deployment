@@ -1,0 +1,75 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName": {
+      "value": "cloudpi"
+    },
+    "environment": {
+      "value": "prod"
+    },
+    "location": {
+      "value": "eastus2"
+    },
+    "tags": {
+      "value": {
+        "Application": "CloudPi",
+        "Environment": "Test",
+        "ManagedBy": "Bicep",
+        "CostCenter": "FinOps",
+        "Owner": "Trey Morgan - NicheSoft"
+      }
+    },
+    "vnetAddressPrefix": {
+      "value": ""
+    },
+    "appSubnetPrefix": {
+      "value": ""
+    },
+    "sshAllowedSourceAddresses": {
+      "value": ["VirtualNetwork"]
+    },
+    "httpsAllowedSourceAddresses": {
+      "value": ["VirtualNetwork"]
+    },
+    "vmSize": {
+      "value": "Standard_D4s_v3"
+    },
+    "adminUsername": {
+      "value": "azureadmin"
+    },
+    "sshPublicKey": {
+      "value": "YOUR_SSH_PUBLIC_KEY_HERE"
+    },
+    "osDiskSizeGB": {
+      "value": 128
+    },
+    "dataDiskSizeGB": {
+      "value": 256
+    },
+    "enableBackup": {
+      "value": true
+    },
+    "backupRetentionDays": {
+      "value": 30
+    },
+    "enableAutoShutdown": {
+      "value": false
+    },
+    "autoShutdownTime": {
+      "value": "2200"
+    },
+    "autoShutdownTimeZone": {
+      "value": "Eastern Standard Time"
+    },
+    "autoShutdownNotificationEmail": {
+      "value": ""
+    },
+    "alertEmailAddresses": {
+      "value": ["your-email@example.com"]
+    },
+    "tenantId": {
+      "value": "YOUR_TENANT_ID_HERE"
+    }
+  }
+}
