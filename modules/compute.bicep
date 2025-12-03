@@ -106,13 +106,14 @@ runcmd:
     set -e
     LOG_FILE="/var/log/cloudpi-disk-setup.log"
     MOUNT_POINT="/mnt/cloudpi-data"
+    ADMIN_USER="${adminUsername}"
 
     # Logging function
     log() {
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
     }
 
-    log "Starting data disk setup"
+    log "Starting data disk setup (admin user: $ADMIN_USER)"
 
     # Create mount point
     mkdir -p "$MOUNT_POINT"
@@ -211,8 +212,8 @@ runcmd:
     fi
 
     # Set ownership
-    chown -R ${adminUsername}:${adminUsername} "$MOUNT_POINT"
-    log "Set ownership to ${adminUsername}"
+    chown -R $ADMIN_USER:$ADMIN_USER "$MOUNT_POINT"
+    log "Set ownership to $ADMIN_USER"
 
     log "Data disk setup completed successfully"
 
