@@ -88,7 +88,8 @@ write_files:
         "log-opts": {
           "max-size": "10m",
           "max-file": "3"
-        }
+        },
+        "data-root": "/mnt/cloudpi-data/docker"
       }
 
 runcmd:
@@ -174,14 +175,31 @@ runcmd:
       log "Existing filesystem type: $EXISTING_FS"
       log "Disk UUID: $DISK_UUID"
 
-      # Add to fstab using UUID if not already present
-      if ! grep -q "$MOUNT_POINT" /etc/fstab; then
-        echo "UUID=$DISK_UUID $MOUNT_POINT $EXISTING_FS defaults,nofail 0 2" >> /etc/fstab
-        log "Added to fstab using UUID"
-      fi
+      # Create systemd mount unit
+      MOUNT_UNIT_FILE="/etc/systemd/system/mnt-cloudpi\\x2ddata.mount"
+      log "Creating systemd mount unit: $MOUNT_UNIT_FILE"
 
-      mount -a
-      log "Mounted existing filesystem"
+      cat > "$MOUNT_UNIT_FILE" <<EOF
+[Unit]
+Description=CloudPi Data Disk Mount
+Before=docker.service
+After=blockdev@dev-disk-by\\x2duuid-${DISK_UUID}.target
+
+[Mount]
+What=UUID=${DISK_UUID}
+Where=/mnt/cloudpi-data
+Type=${EXISTING_FS}
+Options=defaults,nofail
+DirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+      systemctl daemon-reload
+      systemctl enable mnt-cloudpi\\x2ddata.mount
+      systemctl start mnt-cloudpi\\x2ddata.mount
+      log "Systemd mount unit created and enabled"
     else
       log "Disk not formatted, creating new filesystem"
 
@@ -219,13 +237,31 @@ runcmd:
       PARTITION_UUID=$(blkid -o value -s UUID "$PARTITION")
       log "Partition UUID: $PARTITION_UUID"
 
-      # Add to fstab using UUID
-      echo "UUID=$PARTITION_UUID $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
-      log "Added to fstab using UUID"
+      # Create systemd mount unit
+      MOUNT_UNIT_FILE="/etc/systemd/system/mnt-cloudpi\\x2ddata.mount"
+      log "Creating systemd mount unit: $MOUNT_UNIT_FILE"
 
-      # Mount the filesystem
-      mount -a
-      log "Filesystem mounted"
+      cat > "$MOUNT_UNIT_FILE" <<EOF
+[Unit]
+Description=CloudPi Data Disk Mount
+Before=docker.service
+After=blockdev@dev-disk-by\\x2duuid-${PARTITION_UUID}.target
+
+[Mount]
+What=UUID=${PARTITION_UUID}
+Where=/mnt/cloudpi-data
+Type=ext4
+Options=defaults,nofail
+DirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+      systemctl daemon-reload
+      systemctl enable mnt-cloudpi\\x2ddata.mount
+      systemctl start mnt-cloudpi\\x2ddata.mount
+      log "Systemd mount unit created and enabled"
     fi
 
     # Verify mount
@@ -248,7 +284,11 @@ runcmd:
   - mkdir -p /mnt/cloudpi-data/app
   - mkdir -p /mnt/cloudpi-data/logs
   - mkdir -p /mnt/cloudpi-data/backups
+  - mkdir -p /mnt/cloudpi-data/docker
   - chown -R {{ADMIN_USERNAME}}:{{ADMIN_USERNAME}} /mnt/cloudpi-data
+
+  # Restart Docker to apply data-root configuration
+  - systemctl restart docker
 
   # Install Azure CLI (for potential management tasks)
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
