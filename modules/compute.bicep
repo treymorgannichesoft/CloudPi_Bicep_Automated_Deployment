@@ -179,22 +179,22 @@ runcmd:
       MOUNT_UNIT_FILE="/etc/systemd/system/mnt-cloudpi\\x2ddata.mount"
       log "Creating systemd mount unit: $MOUNT_UNIT_FILE"
 
-      cat > "$MOUNT_UNIT_FILE" <<EOF
-[Unit]
-Description=CloudPi Data Disk Mount
-Before=docker.service
-After=blockdev@dev-disk-by\\x2duuid-${DISK_UUID}.target
-
-[Mount]
-What=UUID=${DISK_UUID}
-Where=/mnt/cloudpi-data
-Type=${EXISTING_FS}
-Options=defaults,nofail
-DirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-EOF
+      printf '%s\n' \
+        '[Unit]' \
+        'Description=CloudPi Data Disk Mount' \
+        'Before=docker.service' \
+        "After=blockdev@dev-disk-by\\\\x2duuid-${DISK_UUID}.target" \
+        '' \
+        '[Mount]' \
+        "What=UUID=${DISK_UUID}" \
+        'Where=/mnt/cloudpi-data' \
+        "Type=${EXISTING_FS}" \
+        'Options=defaults,nofail' \
+        'DirectoryMode=0755' \
+        '' \
+        '[Install]' \
+        'WantedBy=multi-user.target' \
+        > "$MOUNT_UNIT_FILE"
 
       systemctl daemon-reload
       systemctl enable mnt-cloudpi\\x2ddata.mount
@@ -241,22 +241,22 @@ EOF
       MOUNT_UNIT_FILE="/etc/systemd/system/mnt-cloudpi\\x2ddata.mount"
       log "Creating systemd mount unit: $MOUNT_UNIT_FILE"
 
-      cat > "$MOUNT_UNIT_FILE" <<EOF
-[Unit]
-Description=CloudPi Data Disk Mount
-Before=docker.service
-After=blockdev@dev-disk-by\\x2duuid-${PARTITION_UUID}.target
-
-[Mount]
-What=UUID=${PARTITION_UUID}
-Where=/mnt/cloudpi-data
-Type=ext4
-Options=defaults,nofail
-DirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-EOF
+      printf '%s\n' \
+        '[Unit]' \
+        'Description=CloudPi Data Disk Mount' \
+        'Before=docker.service' \
+        "After=blockdev@dev-disk-by\\\\x2duuid-${PARTITION_UUID}.target" \
+        '' \
+        '[Mount]' \
+        "What=UUID=${PARTITION_UUID}" \
+        'Where=/mnt/cloudpi-data' \
+        'Type=ext4' \
+        'Options=defaults,nofail' \
+        'DirectoryMode=0755' \
+        '' \
+        '[Install]' \
+        'WantedBy=multi-user.target' \
+        > "$MOUNT_UNIT_FILE"
 
       systemctl daemon-reload
       systemctl enable mnt-cloudpi\\x2ddata.mount
