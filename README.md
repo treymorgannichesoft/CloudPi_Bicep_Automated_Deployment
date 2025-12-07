@@ -68,6 +68,7 @@ CloudPi_01/
 - Each unique combination gets a **deterministic, conflict-free** IP range
 - Range: `10.50-249.x.x/16` (200 possible unique networks)
 - **Manual override** supported for enterprise IP planning
+- **Note**: Hash calculation uses string lengths; while collisions are rare, verify IP assignments don't conflict with existing networks
 
 | Environment | VM Size | Data Disk | Backup | IP Assignment | Est. Monthly |
 |-------------|---------|-----------|--------|---------------|--------------|
@@ -79,15 +80,85 @@ CloudPi_01/
 
 See [DEPLOYMENT.md](DEPLOYMENT.md#network-strategy-details) for detailed network information.
 
+## Advanced Features
+
+### Auto-Shutdown for Cost Savings
+
+The template includes optional auto-shutdown functionality for dev/test environments:
+
+```bicep
+enableAutoShutdown: true
+autoShutdownTime: '2200'              // 24-hour format (e.g., 2200 = 10 PM)
+autoShutdownTimeZone: 'Eastern Standard Time'
+autoShutdownNotificationEmail: 'admin@example.com'  // Optional email notification
+```
+
+**Benefits:**
+- Automatically shuts down VMs during non-working hours
+- Reduces costs by up to 70% for dev/test environments
+- Configurable timezone and notification settings
+- 30-minute warning email before shutdown (if configured)
+
+**Recommended for:** Development and test environments
+**Not recommended for:** Production workloads requiring 24/7 availability
+
+### Cloud-Init Health Checks
+
+All VMs include comprehensive post-deployment validation:
+
+**Automated Checks (10 validations):**
+1. Docker installation and version
+2. Docker service status
+3. Docker data-root configuration on data disk
+4. Data disk mount at `/mnt/cloudpi-data`
+5. Systemd mount unit enabled for boot persistence
+6. Azure CLI installation
+7. CloudPi directory structure and permissions
+8. Managed identity authentication
+9. Key Vault access verification
+10. Disk space usage monitoring
+
+**Log Files:**
+- `/var/log/cloudpi-deployment-health.log` - Complete health check results
+- `/var/log/cloudpi-disk-setup.log` - Data disk setup details
+- `/var/log/cloud-init-output.log` - Full cloud-init execution log
+
+**Health Check Output Example:**
+```
+✅ ALL CHECKS PASSED - Deployment Successful!
+Your CloudPi VM is ready to use.
+You can now run: docker compose up -d
+```
+
+### Data Disk Management
+
+The template automatically configures persistent data disk mounting:
+
+**Features:**
+- UUID-based systemd mount units (survives disk reattachment)
+- Automatic filesystem detection and reuse on redeployment
+- Safety checks prevent accidental OS disk formatting
+- Docker data-root configured on data disk (`/mnt/cloudpi-data/docker`)
+- Pre-created directory structure: `mysql/`, `app/`, `logs/`, `backups/`, `docker/`
+- Proper ownership and permissions for admin user
+
+**Benefits:**
+- Data persists across VM deletions/recreations
+- Systemd ensures automatic mounting on boot
+- Docker storage separated from OS disk for performance
+- Comprehensive logging for troubleshooting
+
 ## Key Features
 
 - **Flexible Naming**: Parameterized project naming for multi-tenant/multi-project deployments
 - **Auto-Detection**: Automatically detects Azure subscription and tenant context
-- **Zero-Trust Security**: No public IPs by default, NSG-based access control
+- **Network Security**: NSG-based access control with no public IPs on VMs
 - **Managed Identity**: Passwordless authentication to Azure services
 - **Automated Monitoring**: Performance metrics and syslog collection via Azure Monitor
 - **Automated Backups**: Daily VM backups with configurable retention
+- **Auto-Shutdown**: Optional scheduled VM shutdown for dev/test cost savings
 - **Docker Ready**: VM pre-configured with Docker and Docker Compose
+- **Health Checks**: Comprehensive cloud-init validation with detailed logging
 - **Cost Optimization**: Lifecycle policies for automatic data archival
 - **Multi-Environment**: Isolated dev, test, prod with automatic IP assignment
 
@@ -162,8 +233,9 @@ az deployment sub create \
 - RBAC-based access control
 - System-assigned managed identity
 - Soft-delete and purge protection on Key Vault
-- Encrypted storage and disks
-- No public IPs by default
+- Encrypted storage and disks (platform-managed keys)
+- No public IPs on VMs
+- **Note**: Storage and Key Vault use public endpoints with network ACLs set to Allow; consider implementing private endpoints for production workloads
 
 ### High Availability & DR
 - Daily automated backups (configurable)
@@ -173,22 +245,27 @@ az deployment sub create \
 
 ### Monitoring
 - Azure Monitor Agent for metrics and logs
-- Performance counters: CPU, memory, disk
-- Syslog collection for system events
+- Performance counters: CPU, memory, disk, network
+- Syslog collection for system events (auth, daemon, kern, cron)
 - Email alerts for critical issues
 - Log Analytics workspace with data collection rules
+- 60-second sampling interval for performance metrics
+- **Note**: Performance counter paths use Windows notation; verify metrics are collecting correctly for Linux VMs in Log Analytics
 
 ## Post-Deployment Tasks
 
 After successful deployment:
 
-1. **Connect to VM** - Use private IP, Bastion, or optional public IP for testing
-2. **Verify Docker** - Docker and Docker Compose pre-installed via cloud-init
-3. **Configure Cost Export** - Set up Azure Cost Management export to storage
-4. **Deploy Application** - Deploy your application using Docker Compose
-5. **(Optional) Store Secrets in Key Vault** - Use Key Vault for sensitive configuration
-6. **Configure Backups** - Set up backup scripts as needed
-7. **Test Monitoring** - Verify metrics and logs in Log Analytics
+1. **Connect to VM** - Use private IP via VPN/ExpressRoute or Azure Bastion
+2. **Review Health Check Logs** - Check `/var/log/cloudpi-deployment-health.log` for deployment validation results
+3. **Verify Docker** - Docker and Docker Compose pre-installed via cloud-init with data-root on data disk
+4. **Verify Data Disk Mount** - Confirm `/mnt/cloudpi-data` is mounted with systemd mount unit enabled
+5. **Configure Cost Export** - Set up Azure Cost Management export to storage
+6. **Deploy Application** - Deploy your application using Docker Compose
+7. **(Optional) Store Secrets in Key Vault** - Use Key Vault for sensitive configuration
+8. **Configure Backups** - Set up application backup scripts as needed
+9. **Test Monitoring** - Verify metrics and logs in Log Analytics
+10. **(Optional) Configure Auto-Shutdown** - Set shutdown schedule for dev/test environments to save costs
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed post-deployment steps.
 
@@ -217,10 +294,12 @@ KV_URI=$(az deployment sub show --name $DEPLOYMENT_NAME --query properties.outpu
 The modular design allows easy customization:
 
 - **Add Application Gateway** - Uncomment AGW subnet in networking module
-- **Enable Private Endpoints** - Update storage and Key Vault modules
+- **Enable Private Endpoints** - **Recommended for production**: Update storage and Key Vault modules to use private endpoints and change network ACLs to Deny
 - **Add VNet Peering** - Connect to hub VNet for central connectivity
-- **Multi-VM Deployment** - Extend compute module with VM scale set
+- **Multi-VM Deployment** - Extend compute module with VM scale set or availability zones
 - **Managed Database** - Replace VM MySQL with Azure Database for MySQL
+- **DDoS Protection** - Add Azure DDoS Protection Standard plan to VNet
+- **Customer-Managed Keys** - Configure Key Vault for disk and storage encryption
 
 ### Custom Environment
 
@@ -243,7 +322,7 @@ az deployment sub create \
 
 Common issues and solutions are documented in [DEPLOYMENT.md](DEPLOYMENT.md#troubleshooting).
 
-Quick checks:
+### Quick Deployment Checks
 
 ```bash
 # Verify tools
@@ -259,6 +338,53 @@ az deployment sub show --name cloudpi-prod-20251116-120000
 # View activity logs
 az monitor activity-log list --resource-group rg-cloudpi-prod
 ```
+
+### VM Health Verification
+
+After deployment, SSH to your VM and verify the health checks:
+
+```bash
+# Review health check results
+cat /var/log/cloudpi-deployment-health.log
+
+# Check data disk mount
+df -h /mnt/cloudpi-data
+systemctl status mnt-cloudpi\\x2ddata.mount
+
+# Verify Docker configuration
+docker info | grep "Docker Root Dir"
+# Should show: /mnt/cloudpi-data/docker
+
+# Check cloud-init completion
+cloud-init status
+
+# View full cloud-init logs
+cat /var/log/cloud-init-output.log
+```
+
+### Common Issues
+
+**Data disk not mounted:**
+```bash
+# Check systemd mount unit
+systemctl status mnt-cloudpi\\x2ddata.mount
+journalctl -u mnt-cloudpi\\x2ddata.mount
+
+# Review disk setup logs
+cat /var/log/cloudpi-disk-setup.log
+```
+
+**Docker not using data disk:**
+```bash
+# Verify Docker daemon configuration
+cat /etc/docker/daemon.json
+systemctl restart docker
+```
+
+**Performance metrics not appearing in Log Analytics:**
+- Verify Azure Monitor Agent is running: `systemctl status azuremonitoragent`
+- Check Data Collection Rule association in Azure Portal
+- Note: Performance counter paths are Windows-style; some metrics may need adjustment for Linux
 
 ## Maintenance
 
@@ -278,15 +404,30 @@ az monitor activity-log list --resource-group rg-cloudpi-prod
 
 This template implements:
 
-- ✅ No public IPs on VMs (optional for testing)
-- ✅ NSG with explicit allow rules only
+- ✅ No public IPs on VMs
+- ✅ NSG with explicit allow rules and deny-all fallback
+- ✅ SSH key-only authentication (password disabled)
 - ✅ Managed identity instead of credentials
 - ✅ RBAC-based access control
-- ✅ Encryption at rest for all storage
+- ✅ Encryption at rest for all storage (platform-managed keys)
 - ✅ TLS 1.2 minimum for all services
-- ✅ Soft-delete enabled on Key Vault
+- ✅ Soft-delete and purge protection on Key Vault
 - ✅ Boot diagnostics enabled
-- ✅ Automated patching configured
+- ✅ Automated patching configured (AutomaticByPlatform)
+- ✅ Blob public access disabled
+- ✅ Storage lifecycle policies for cost optimization
+- ⚠️ Storage and Key Vault accessible via public endpoints (network ACLs: Allow)
+
+### Recommended Production Hardening
+
+For production deployments, consider:
+- Implement private endpoints for Storage Account and Key Vault
+- Change network ACLs `defaultAction` from `Allow` to `Deny` with specific IP allowlists
+- Enable customer-managed keys (CMK) for enhanced encryption control
+- Implement Azure DDoS Protection on VNet
+- Configure availability zones for high availability
+- Set up Azure Policy for governance and compliance
+- Restrict `sshAllowedSourceAddresses` and `httpsAllowedSourceAddresses` to specific IP ranges (avoid wildcards)
 
 ## Documentation
 
