@@ -20,6 +20,7 @@ The interactive script will:
 - Auto-detect your Azure subscription and tenant
 - Guide you through project naming and environment selection (dev/test/prod)
 - Configure network settings and deployment options
+- **Optional**: Add a temporary public IP for testing (with warnings)
 - Deploy in ~10-15 minutes
 
 For detailed instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
@@ -81,6 +82,42 @@ CloudPi_01/
 See [DEPLOYMENT.md](DEPLOYMENT.md#network-strategy-details) for detailed network information.
 
 ## Advanced Features
+
+### Temporary Public IP for Testing
+
+The interactive deployment script offers an **optional temporary public IP** for testing:
+
+**How it works:**
+- The Bicep templates do NOT create public IPs (secure by default)
+- The deployment script offers to add a public IP **after** deployment using Azure CLI
+- Created as `pip-{vmname}-temp` for easy identification
+- Script provides SSH connection string and removal instructions
+
+**When to use:**
+- ✅ Testing and initial setup without VPN/Bastion infrastructure
+- ✅ Development environments for quick access
+- ✅ Learning and experimentation
+
+**Security warnings:**
+- ⚠️ Script displays clear warnings to remove before production
+- ⚠️ Public IP exposes SSH port to internet (protected by NSG rules)
+- ⚠️ Recommendation: Remove immediately after testing
+
+**To remove public IP:**
+```bash
+VM_NAME="vm-cloudpi-app-01-dev"
+RG_NAME="rg-cloudpi-dev"
+
+az network nic ip-config update \
+  --resource-group $RG_NAME \
+  --nic-name nic-${VM_NAME} \
+  --name ipconfig1 \
+  --remove publicIpAddress
+
+az network public-ip delete \
+  --resource-group $RG_NAME \
+  --name pip-${VM_NAME}-temp
+```
 
 ### Auto-Shutdown for Cost Savings
 
@@ -181,7 +218,7 @@ Guides you through:
 - Azure subscription verification (auto-detected)
 - Project name for resource naming
 - Environment selection (dev/test/prod)
-- Public IP option for testing
+- **Public IP option** for testing environments (added post-deployment via Azure CLI)
 - Azure region selection
 - Deployment summary with cost estimates
 
@@ -256,7 +293,7 @@ az deployment sub create \
 
 After successful deployment:
 
-1. **Connect to VM** - Use private IP via VPN/ExpressRoute or Azure Bastion
+1. **Connect to VM** - Use private IP via VPN/ExpressRoute, Azure Bastion, or temporary public IP (if added during interactive deployment)
 2. **Review Health Check Logs** - Check `/var/log/cloudpi-deployment-health.log` for deployment validation results
 3. **Verify Docker** - Docker and Docker Compose pre-installed via cloud-init with data-root on data disk
 4. **Verify Data Disk Mount** - Confirm `/mnt/cloudpi-data` is mounted with systemd mount unit enabled
@@ -386,6 +423,22 @@ systemctl restart docker
 - Check Data Collection Rule association in Azure Portal
 - Note: Performance counter paths are Windows-style; some metrics may need adjustment for Linux
 
+**Check if VM has a public IP attached:**
+```bash
+# List all public IPs in resource group
+az network public-ip list --resource-group rg-cloudpi-dev --output table
+
+# Check specific NIC configuration
+az network nic show --resource-group rg-cloudpi-dev \
+  --name nic-vm-cloudpi-app-01-dev \
+  --query "ipConfigurations[0].publicIpAddress" -o tsv
+```
+
+**Remove temporary public IP from VM:**
+```bash
+# See "Temporary Public IP for Testing" section above for removal commands
+```
+
 ## Maintenance
 
 ### Regular Tasks
@@ -404,7 +457,7 @@ systemctl restart docker
 
 This template implements:
 
-- ✅ No public IPs on VMs
+- ✅ No public IPs on VMs (Bicep templates secure by default; deployment script offers optional temp public IP for testing)
 - ✅ NSG with explicit allow rules and deny-all fallback
 - ✅ SSH key-only authentication (password disabled)
 - ✅ Managed identity instead of credentials

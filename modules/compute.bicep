@@ -92,7 +92,7 @@ write_files:
           "max-size": "10m",
           "max-file": "3"
         },
-        "data-root": "/mnt/cloudpi-data/docker"
+        "data-root": "/datadisk/docker"
       }
 
 runcmd:
@@ -109,7 +109,7 @@ runcmd:
   - |
     set -e
     LOG_FILE="/var/log/cloudpi-disk-setup.log"
-    MOUNT_POINT="/mnt/cloudpi-data"
+    MOUNT_POINT="/datadisk"
     ADMIN_USER="{{ADMIN_USERNAME}}"
 
     # Logging function
@@ -179,7 +179,7 @@ runcmd:
       log "Disk UUID: $DISK_UUID"
 
       # Create systemd mount unit
-      MOUNT_UNIT_FILE="/etc/systemd/system/mnt-cloudpi\\x2ddata.mount"
+      MOUNT_UNIT_FILE="/etc/systemd/system/datadisk.mount"
       log "Creating systemd mount unit: $MOUNT_UNIT_FILE"
 
       printf '%s\n' \
@@ -190,7 +190,7 @@ runcmd:
         '' \
         '[Mount]' \
         "What=UUID=${DISK_UUID}" \
-        'Where=/mnt/cloudpi-data' \
+        'Where=/datadisk' \
         "Type=${EXISTING_FS}" \
         'Options=defaults,nofail' \
         'DirectoryMode=0755' \
@@ -200,8 +200,8 @@ runcmd:
         > "$MOUNT_UNIT_FILE"
 
       systemctl daemon-reload
-      systemctl enable mnt-cloudpi\\x2ddata.mount
-      systemctl start mnt-cloudpi\\x2ddata.mount
+      systemctl enable datadisk.mount
+      systemctl start datadisk.mount
       log "Systemd mount unit created and enabled"
     else
       log "Disk not formatted, creating new filesystem"
@@ -241,7 +241,7 @@ runcmd:
       log "Partition UUID: $PARTITION_UUID"
 
       # Create systemd mount unit
-      MOUNT_UNIT_FILE="/etc/systemd/system/mnt-cloudpi\\x2ddata.mount"
+      MOUNT_UNIT_FILE="/etc/systemd/system/datadisk.mount"
       log "Creating systemd mount unit: $MOUNT_UNIT_FILE"
 
       printf '%s\n' \
@@ -252,7 +252,7 @@ runcmd:
         '' \
         '[Mount]' \
         "What=UUID=${PARTITION_UUID}" \
-        'Where=/mnt/cloudpi-data' \
+        'Where=/datadisk' \
         'Type=ext4' \
         'Options=defaults,nofail' \
         'DirectoryMode=0755' \
@@ -262,8 +262,8 @@ runcmd:
         > "$MOUNT_UNIT_FILE"
 
       systemctl daemon-reload
-      systemctl enable mnt-cloudpi\\x2ddata.mount
-      systemctl start mnt-cloudpi\\x2ddata.mount
+      systemctl enable datadisk.mount
+      systemctl start datadisk.mount
       log "Systemd mount unit created and enabled"
     fi
 
@@ -283,12 +283,12 @@ runcmd:
     log "Data disk setup completed successfully"
 
   # Create directories for CloudPi
-  - mkdir -p /mnt/cloudpi-data/mysql
-  - mkdir -p /mnt/cloudpi-data/app
-  - mkdir -p /mnt/cloudpi-data/logs
-  - mkdir -p /mnt/cloudpi-data/backups
-  - mkdir -p /mnt/cloudpi-data/docker
-  - chown -R {{ADMIN_USERNAME}}:{{ADMIN_USERNAME}} /mnt/cloudpi-data
+  - mkdir -p /datadisk/mysql
+  - mkdir -p /datadisk/app
+  - mkdir -p /datadisk/logs
+  - mkdir -p /datadisk/backups
+  - mkdir -p /datadisk/docker
+  - chown -R {{ADMIN_USERNAME}}:{{ADMIN_USERNAME}} /datadisk
 
   # Restart Docker to apply data-root configuration
   - systemctl restart docker
@@ -335,7 +335,7 @@ runcmd:
       # Check 3: Docker Data Root
       echo "[3/10] Checking Docker data-root..."
       DOCKER_ROOT=$(docker info 2>/dev/null | grep "Docker Root Dir" | awk '{print $4}')
-      if [ "$DOCKER_ROOT" = "/mnt/cloudpi-data/docker" ]; then
+      if [ "$DOCKER_ROOT" = "/datadisk/docker" ]; then
         echo "  ✅ Docker using data disk: $DOCKER_ROOT"
       else
         echo "  ❌ ERROR: Docker not using data disk (current: $DOCKER_ROOT)"
@@ -344,18 +344,18 @@ runcmd:
 
       # Check 4: Data Disk Mount
       echo "[4/10] Checking data disk mount..."
-      if mountpoint -q /mnt/cloudpi-data; then
-        DISK_SIZE=$(df -h /mnt/cloudpi-data | tail -1 | awk '{print $2}')
-        DISK_AVAIL=$(df -h /mnt/cloudpi-data | tail -1 | awk '{print $4}')
+      if mountpoint -q /datadisk; then
+        DISK_SIZE=$(df -h /datadisk | tail -1 | awk '{print $2}')
+        DISK_AVAIL=$(df -h /datadisk | tail -1 | awk '{print $4}')
         echo "  ✅ Data disk mounted: $DISK_SIZE total, $DISK_AVAIL available"
       else
-        echo "  ❌ ERROR: Data disk not mounted at /mnt/cloudpi-data"
+        echo "  ❌ ERROR: Data disk not mounted at /datadisk"
         ERRORS=$((ERRORS + 1))
       fi
 
       # Check 5: systemd Mount Unit
       echo "[5/10] Checking systemd mount unit..."
-      if systemctl is-enabled --quiet mnt-cloudpi\\x2ddata.mount 2>/dev/null; then
+      if systemctl is-enabled --quiet datadisk.mount 2>/dev/null; then
         echo "  ✅ systemd mount unit enabled (will auto-mount on reboot)"
       else
         echo "  ❌ ERROR: systemd mount unit not enabled"
@@ -376,18 +376,18 @@ runcmd:
       echo "[7/10] Checking CloudPi directories..."
       DIRS_OK=true
       for dir in mysql app logs backups docker; do
-        if [ -d "/mnt/cloudpi-data/$dir" ]; then
-          OWNER=$(stat -c "%U:%G" "/mnt/cloudpi-data/$dir" 2>/dev/null)
+        if [ -d "/datadisk/$dir" ]; then
+          OWNER=$(stat -c "%U:%G" "/datadisk/$dir" 2>/dev/null)
           if [ "$dir" = "docker" ]; then
-            echo "  ✅ /mnt/cloudpi-data/$dir exists (owner: $OWNER)"
+            echo "  ✅ /datadisk/$dir exists (owner: $OWNER)"
           elif [ "$OWNER" = "$ADMIN_USER:$ADMIN_USER" ]; then
-            echo "  ✅ /mnt/cloudpi-data/$dir exists (owner: $OWNER)"
+            echo "  ✅ /datadisk/$dir exists (owner: $OWNER)"
           else
-            echo "  ⚠️  WARNING: /mnt/cloudpi-data/$dir has incorrect owner: $OWNER (expected: $ADMIN_USER:$ADMIN_USER)"
+            echo "  ⚠️  WARNING: /datadisk/$dir has incorrect owner: $OWNER (expected: $ADMIN_USER:$ADMIN_USER)"
             DIRS_OK=false
           fi
         else
-          echo "  ❌ ERROR: /mnt/cloudpi-data/$dir missing"
+          echo "  ❌ ERROR: /datadisk/$dir missing"
           ERRORS=$((ERRORS + 1))
           DIRS_OK=false
         fi
@@ -417,7 +417,7 @@ runcmd:
 
       # Check 10: Disk Space
       echo "[10/10] Checking disk space..."
-      DATA_DISK_USAGE=$(df -h /mnt/cloudpi-data | tail -1 | awk '{print $5}' | sed 's/%//')
+      DATA_DISK_USAGE=$(df -h /datadisk | tail -1 | awk '{print $5}' | sed 's/%//')
       if [ "$DATA_DISK_USAGE" -lt 10 ]; then
         echo "  ✅ Data disk usage: ${DATA_DISK_USAGE}%"
       else
